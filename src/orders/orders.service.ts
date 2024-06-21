@@ -11,6 +11,8 @@ import { ClientProxy, RpcException } from '@nestjs/microservices';
 import { ChangeOrderStatusDto, OrderPaginationDto } from './dto';
 import { NATS_SERVICE } from 'src/config';
 import { firstValueFrom } from 'rxjs';
+import { OrderWithProducts } from 'src/interface/order-with-products.interface';
+import { PaidOrderDto } from './dto/paid-order.dtp';
 
 @Injectable()
 export class OrdersService extends PrismaClient implements OnModuleInit {
@@ -131,7 +133,6 @@ export class OrdersService extends PrismaClient implements OnModuleInit {
         message: `Order with id ${id} not found`,
       });
     }
-    
 
     const productIds = order.OrderItem.map((orderItem) => orderItem.productId);
     const products: any[] = await firstValueFrom(
@@ -159,5 +160,42 @@ export class OrdersService extends PrismaClient implements OnModuleInit {
       where: { id },
       data: { status: status },
     });
+  }
+
+  async createPaymentSession(order: OrderWithProducts) {
+    const paymentSession = await firstValueFrom(
+      this.client.send('create.payment.session', {
+        orderId: order.id,
+        currency: 'usd',
+        items: order.OrderItem.map((item) => ({
+          name: item.name,
+          price: item.price,
+          quantity: item.quantity,
+        })),
+      }),
+    );
+    return paymentSession;
+  }
+
+  async orderPaid(paidOrderDto: PaidOrderDto) {
+
+
+    this.logger.log('Order pagada!')
+    const order = await this.order.update({
+      where: { id: paidOrderDto.orderId },
+      data: {
+        paid: true,
+        status: 'PAID',
+        createdAt: new Date(),
+        stripeId: paidOrderDto.stripeId,
+        OrderReceipt: {
+          create: {
+            receipt_url: paidOrderDto.receipt_url,
+          },
+        },
+      },
+    });
+
+    return order
   }
 }
